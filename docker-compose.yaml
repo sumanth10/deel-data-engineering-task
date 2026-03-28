@@ -64,5 +64,41 @@ services:
     entrypoint: ["/bin/sh", "/init-connectors.sh"]
     restart: "no"
 
+  spark:
+    build:
+      context: ./spark
+      dockerfile: infra/Dockerfile
+    container_name: spark
+    depends_on:
+      kafka-connect:
+        condition: service_started
+      # analytics-db:
+      #   condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      RAW_BASE_PATH: /delta/raw
+      LOGISTICS_BASE_PATH: /delta/logistics
+      CHECKPOINT_BASE_PATH: /tmp/checkpoints
+      DEAD_LETTER_BASE_PATH: /delta/dead_letter
+      SPARK_SHUFFLE_PARTITIONS: "8"
+      MAX_OFFSETS_PER_TRIGGER: "10000"
+      MAX_OFFSETS_PER_TRIGGER_LOW_VOLUME: "2000"
+      TRIGGER_SECONDS: "10"
+    volumes:
+      - delta-store:/delta
+      - spark-checkpoints:/tmp/checkpoints
+    ports:
+      - "4040:4040"
+    # Restart on failure so a transient Kafka connectivity issue during startup
+    # doesn't leave the pipeline permanently down.
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 3500M
+
 volumes:
   pg-data:
+  delta-store:
+  spark-checkpoints:
