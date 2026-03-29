@@ -1,6 +1,6 @@
 from pyspark.sql.types import (
     StructType, StructField,
-    LongType, IntegerType, StringType, BooleanType
+    LongType, IntegerType, StringType, BooleanType, TimestampType, DateType, DecimalType
 )
 
 # source block (common to all tables)
@@ -64,6 +64,49 @@ ORDER_ITEMS_ROW = StructType([
     StructField("updated_by",    LongType(),    True),
     StructField("created_at",    LongType(),    True),
     StructField("created_by",    LongType(),    True),
+])
+
+# Logistics table schemas
+LOGISTICS_ORDERS_SCHEMA = StructType([
+    StructField("order_id",      LongType(),          True),
+    StructField("order_date",    DateType(),          True),
+    StructField("delivery_date", DateType(),          True),
+    StructField("customer_id",   LongType(),          True),
+    StructField("status",        StringType(),        True),
+    StructField("updated_at",    TimestampType(),     True),
+    StructField("created_at",    TimestampType(),     True),
+    StructField("_deleted",      BooleanType(),       True),
+])
+
+LOGISTICS_CUSTOMERS_SCHEMA = StructType([
+    StructField("customer_id",      LongType(),      True),
+    StructField("customer_name",    StringType(),    True),
+    StructField("is_active",        BooleanType(),   True),
+    StructField("customer_address", StringType(),    True),
+    StructField("updated_at",       TimestampType(), True),
+    StructField("created_at",       TimestampType(), True),
+    StructField("_deleted",         BooleanType(),   True),
+])
+
+LOGISTICS_PRODUCTS_SCHEMA = StructType([
+    StructField("product_id",   LongType(),         True),
+    StructField("product_name", StringType(),       True),
+    StructField("barcode",      StringType(),       True),
+    StructField("unity_price",  DecimalType(10, 2), True),
+    StructField("is_active",    BooleanType(),      True),
+    StructField("updated_at",   TimestampType(),    True),
+    StructField("created_at",   TimestampType(),    True),
+    StructField("_deleted",     BooleanType(),      True),
+])
+
+LOGISTICS_ORDER_ITEMS_SCHEMA = StructType([
+    StructField("order_item_id", LongType(),      True),
+    StructField("order_id",      LongType(),      True),
+    StructField("product_id",    LongType(),      True),
+    StructField("quantity",      IntegerType(),   True),
+    StructField("updated_at",    TimestampType(), True),
+    StructField("created_at",    TimestampType(), True),
+    StructField("_deleted",      BooleanType(),   True),
 ])
 
 def make_envelope(row_schema: StructType) -> StructType:

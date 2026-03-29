@@ -64,6 +64,23 @@ services:
     entrypoint: ["/bin/sh", "/init-connectors.sh"]
     restart: "no"
 
+  analytics-db:
+    image: postgres:15
+    container_name: analytics-db
+    environment:
+      POSTGRES_USER: analytics_user
+      POSTGRES_PASSWORD: analytics_1234
+      POSTGRES_DB: analytics
+    volumes:
+      - analytics-pg-data:/var/lib/postgresql/data
+      - "${PWD}/analytics:/docker-entrypoint-initdb.d"
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U analytics_user -d analytics"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
   spark:
     build:
       context: ./spark
@@ -72,18 +89,10 @@ services:
     depends_on:
       kafka-connect:
         condition: service_started
-      # analytics-db:
-      #   condition: service_healthy
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      RAW_BASE_PATH: /delta/raw
-      LOGISTICS_BASE_PATH: /delta/logistics
-      CHECKPOINT_BASE_PATH: /tmp/checkpoints
-      DEAD_LETTER_BASE_PATH: /delta/dead_letter
-      SPARK_SHUFFLE_PARTITIONS: "8"
-      MAX_OFFSETS_PER_TRIGGER: "10000"
-      MAX_OFFSETS_PER_TRIGGER_LOW_VOLUME: "2000"
-      TRIGGER_SECONDS: "10"
+      analytics-db:
+        condition: service_healthy
+    env_file:
+      - .env
     volumes:
       - delta-store:/delta
       - spark-checkpoints:/tmp/checkpoints
@@ -102,3 +111,4 @@ volumes:
   pg-data:
   delta-store:
   spark-checkpoints:
+  analytics-pg-data:
