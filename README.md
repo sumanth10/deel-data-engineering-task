@@ -218,17 +218,29 @@ Note: if stateful streaming were used at the logistics layer, state store memory
 
 **Production cluster recommendation for 1M orders/day:**
 
-| Component | Dev (this repo) | Production |
+| Component          | Dev (this repo)  | Production                          |
 |---|---|---|
-| Spark mode | local[4] | EMR on EKS / YARN |
-| Driver | shared with executors | 1 × m5.xlarge dedicated |
-| Executors | 1 (driver only) | 5 × m5.xlarge |
-| Cores per executor | shared local[4] | 4 cores |
-| Memory per executor | 2GB driver | 8GB |
-| Kafka partitions | 1 per topic | 8 per topic |
-| Trigger interval | 10/10/20s | 5/5/10s |
+| Spark mode         | local[4]         | EMR on EKS / YARN                   |
+| Driver             | shared           | 1 × m5.xlarge dedicated             |
+| Executors          | 1 (driver only)  | 2 × m5.xlarge                       |
+| Cores per executor | shared local[4]  | 3 cores (1 reserved for OS/YARN)    |
+| Memory per executor| 2GB driver       | 8GB                                 |
+| Kafka partitions   | 1 per topic      | 8 per topic                         |
+| Trigger interval   | 10/10/20s        | 5/5/10s                             |
 
-The driver is kept on a dedicated reserved instance, it manages streaming query state, checkpoint coordination, and DAG scheduling. Driver failure stops the entire pipeline, so it should never be on a Spot instance. Executor nodes run the actual data processing and can tolerate interruption, Spark restarts failed tasks from the last checkpoint automatically.
+The driver is kept on a dedicated reserved instance — it manages streaming 
+query state, checkpoint coordination, and DAG scheduling. Driver failure 
+stops the entire pipeline so it should never be on a Spot instance. 
+Executor nodes can tolerate interruption — Spark restarts failed tasks 
+from the last checkpoint automatically.
+
+In production, `spark.executor.cores` is set to 3 rather than 4 on each 
+`m5.xlarge` — leaving one core for OS and YARN/Kubernetes daemon overhead. 
+Setting it to 4 on a 4-core machine causes resource allocation queuing. 
+With 2 executors × 3 usable cores = 6 available task slots, 8 Kafka 
+partitions provides a small buffer above the slot count — ensuring all 
+cores stay busy even if one partition's batch runs slightly longer than 
+the others.
 
 **AWS cost estimate (eu-central-1 — Frankfurt):**
 
@@ -236,9 +248,9 @@ The driver is kept on a dedicated reserved instance, it manages streaming query 
 
 | | On-demand | 1-yr Reserved | Spot (executors only) |
 |---|---|---|---|
-| 1 driver (m5.xlarge) | $0.214/hr | ~$0.135/hr | not recommended |
-| 5 executors (m5.xlarge) | $1.07/hr | ~$0.675/hr | ~$0.32/hr |
-| **Total** | **~$1.28/hr / $31/day** | **~$0.81/hr / $19/day** | **~$0.54/hr / $13/day** |
+| 1 driver (m5.xlarge)   | $0.214/hr | ~$0.135/hr  | not recommended |
+| 2 executors (m5.xlarge)| $0.428/hr | ~$0.270/hr  | ~$0.13/hr       |
+| **Total**              | **~$0.64/hr / $15/day** | **~$0.40/hr / $10/day** | **~$0.27/hr / $6/day** |
 
 Spot savings on executors are typically 60-70% in eu-central-1. The recommended production setup is reserved driver + Spot executors.
 
