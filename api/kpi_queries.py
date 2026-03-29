@@ -1,9 +1,3 @@
-"""
-All four KPI queries run against analytics.open_orders in PostgreSQL.
-No computation at query time — pure GROUP BY on indexed columns.
-Adding a new KPI = new SQL query, zero Spark changes.
-"""
-
 OPEN_ORDERS_BY_DATE_STATUS = """
     SELECT
         delivery_date,

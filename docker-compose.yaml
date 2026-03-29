@@ -106,6 +106,23 @@ services:
         limits:
           cpus: "4"
           memory: 3500M
+  api:
+    build:
+      context: ./api
+      dockerfile: infra/Dockerfile
+    container_name: api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - analytics-db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   pg-data:
