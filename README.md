@@ -192,27 +192,17 @@ This section walks through how I would size a production Spark cluster for this 
 | logistics_order_items | 372.17 | 273.60 |
 | logistics_orders | 55.44 | 41.11 |
 
-Two things stand out. First, `processedRowsPerSecond > inputRowsPerSecond` on raw streams means the pipeline is fully caught up , confirmed by `avgOffsetsBehindLatest: 0.0` across all queries. Second, logistics processes more rows/sec than raw because the logistics MERGE reads the full Delta snapshot in addition to the incoming batch, the effective read amplification is roughly 1.5-2x.
+Two things stand out. First, `processedRowsPerSecond > inputRowsPerSecond` on raw streams means the pipeline is fully caught up, confirmed by `avgOffsetsBehindLatest: 0.0` across all queries. Second, logistics processes more rows/sec than raw because the logistics MERGE reads the full Delta snapshot in addition to the incoming batch — the effective read amplification is roughly 1.5-2x.
 
 **Scaling this to production (1M orders/day):**
 
-1M orders/day = ~11.6 orders/sec steady state, ~35/sec at peak. At the observed ratio of ~7x more order_items than orders, peak CDC rate is roughly 35 × 7 + 35 = ~280 events/sec, about 1.3x the dev environment rate. So the dev cluster is already being tested at meaningful load.
-
+1M orders/day peaks at ~35 orders/sec. At the observed 6.7:1 ratio of order_items to orders, that projects to ~245 order_items/sec at peak — about 1.3× the dev environment rate. The dev environment with a single partition was already processing 372 order_items/sec, meaning this setup was handling 1.5× the projected 1M/day peak throughout the run.
 
 **Partition and parallelism calculation:**
 
-Each Kafka topic has 1 partition in dev, giving 1 Spark task per batch per topic. In production at 8 partitions per topic, Spark creates 8 parallel tasks per topic 32 read tasks total.
+Each Kafka topic has 1 partition in dev, giving 1 Spark task per batch per topic. In production at 6 partitions per topic, Spark creates 6 parallel tasks per topic, 24 read tasks total across all four topics.
 
-Scaling from observed metrics to the 1M orders/day target:
-
-At the observed 6.7:1 ratio of order_items to orders — consistent with 
-~7 items per order in the data generator — 1M orders/day peaking at 
-~35 orders/sec projects to ~245 order_items/sec at peak. The dev 
-environment with a single partition was already processing 372/sec, 
-meaning this setup was handling 1.5× the projected 1M/day peak load 
-throughout the run.
-
-Throughput alone does not require more than 1 partition. The driver for 8 partitions is batch duration. With 1 partition, 1 task processes the entire batch, if a logistics MERGE takes 12 seconds, it takes 12 seconds. With 8 partitions and 8 parallel tasks, the same MERGE completes in ~3 seconds. With a 10-second trigger interval, the difference between 12 seconds and 3 seconds is the difference between permanent lag accumulation and a healthy pipeline.
+Throughput alone does not require more than 1 partition. The driver for 6 partitions is batch duration. With 1 partition, 1 task processes the entire batch, if a logistics MERGE takes 12 seconds, it takes 12 seconds. With 6 partitions and 6 parallel tasks, the same MERGE completes in ~3 seconds. With a 10-second trigger interval, the difference between 12 seconds and 3 seconds is the difference between permanent lag accumulation and a healthy pipeline.
 
 Note: if stateful streaming were used at the logistics layer, state store memory adds roughly 500MB-5GB on top of the batch working set depending on active order volume, pushing executor sizing from m5.xlarge to m5.2xlarge and requiring RocksDB state store to avoid heap pressure.
 
@@ -225,22 +215,12 @@ Note: if stateful streaming were used at the logistics layer, state store memory
 | Executors          | 1 (driver only)  | 2 × m5.xlarge                       |
 | Cores per executor | shared local[4]  | 3 cores (1 reserved for OS/YARN)    |
 | Memory per executor| 2GB driver       | 8GB                                 |
-| Kafka partitions   | 1 per topic      | 8 per topic                         |
+| Kafka partitions   | 1 per topic      | 6 per topic                         |
 | Trigger interval   | 10/10/20s        | 5/5/10s                             |
 
-The driver is kept on a dedicated reserved instance — it manages streaming 
-query state, checkpoint coordination, and DAG scheduling. Driver failure 
-stops the entire pipeline so it should never be on a Spot instance. 
-Executor nodes can tolerate interruption — Spark restarts failed tasks 
-from the last checkpoint automatically.
+The driver is kept on a dedicated reserved instance, it manages streaming query state, checkpoint coordination, and DAG scheduling. Driver failure stops the entire pipeline so it should never be on a Spot instance. Executor nodes can tolerate interruption — Spark restarts failed tasks from the last checkpoint automatically.
 
-In production, `spark.executor.cores` is set to 3 rather than 4 on each 
-`m5.xlarge` — leaving one core for OS and YARN/Kubernetes daemon overhead. 
-Setting it to 4 on a 4-core machine causes resource allocation queuing. 
-With 2 executors × 3 usable cores = 6 available task slots, 8 Kafka 
-partitions provides a small buffer above the slot count — ensuring all 
-cores stay busy even if one partition's batch runs slightly longer than 
-the others.
+In production, `spark.executor.cores` is set to 3 rather than 4 on each `m5.xlarge`, leaving one core for OS and YARN/Kubernetes daemon overhead. Setting it to 4 on a 4-core machine causes resource allocation queuing. With 2 executors × 3 usable cores = 6 available task slots, the Kafka partition count is set to 6 per topic — one partition per available task slot, keeping all cores fully utilised every batch.
 
 **AWS cost estimate (eu-central-1 — Frankfurt):**
 
@@ -253,8 +233,6 @@ the others.
 | **Total**              | **~$0.64/hr / $15/day** | **~$0.40/hr / $10/day** | **~$0.27/hr / $6/day** |
 
 Spot savings on executors are typically 60-70% in eu-central-1. The recommended production setup is reserved driver + Spot executors.
-
----
 
 ## Latency Budget
 
